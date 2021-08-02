@@ -1,0 +1,21 @@
+[package]
+name = "worldcrab"
+version = "0.1.0"
+authors = ["Christian Dywan <cdywan@suse.de>"]
+edition = "2018"
+
+license-file = "LICENSE.txt"
+description = "A static meta blog generator aka a planet"
+homepage = "https://github.com/kalikiana/worldcrab/"
+repository = "https://github.com/kalikiana/worldcrab/"
+readme = "README.md"
+documentation = "https://docs.rs/worldcrab"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+yaml-rust = "0.4"
+git2 = {version="0.13", default-features=false, features=["https"]}
+reqwest = "0.9.18"
+# Tests
+tempfile = "3.2.0"
