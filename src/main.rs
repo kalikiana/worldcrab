@@ -1,12 +1,17 @@
+extern crate chrono;
 extern crate reqwest;
+extern crate syndication;
 extern crate yaml_rust;
+use chrono::prelude::*;
 use git2::{Error, Repository, ResetType};
 use std::env;
 use std::fs;
 use std::fs::File;
 use std::io;
+use std::io::prelude::*;
 use std::io::Read;
 use std::path::Path;
+use syndication::Feed;
 use yaml_rust::YamlLoader;
 
 fn main() -> Result<(), io::Error> {
@@ -54,6 +59,51 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
                 fs::hard_link(post.path(), output.join(post.file_name()))?
             };
         }
+    } else if blog.ends_with(".xml") {
+        let mut body = String::new();
+        if blog.starts_with("http") {
+            let mut res = match reqwest::get(blog) {
+                Ok(res) => res,
+                Err(e) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Other,
+                        format!("failed to download: {}", e),
+                    ))
+                }
+            };
+            body = res.text().unwrap();
+        } else {
+            let mut file = File::open(blog)?;
+            file.read_to_string(&mut body)?;
+        }
+        match body.parse::<Feed>().unwrap() {
+            Feed::Atom(atom) => {
+                for item in atom.entries().iter() {
+                    post(
+                        output,
+                        item.title(),
+                        item.summary().unwrap(),
+                        "",
+                        "",
+                        rfc3339(item.published().unwrap())?.as_str(),
+                        item.id(),
+                    )?;
+                }
+            }
+            Feed::RSS(rss) => {
+                for item in rss.items().iter() {
+                    post(
+                        output,
+                        item.title().unwrap(),
+                        item.description().unwrap(),
+                        "",
+                        "",
+                        rfc3339(item.pub_date().unwrap())?.as_str(),
+                        item.link().unwrap(),
+                    )?;
+                }
+            }
+        };
     } else {
         return Err(io::Error::new(io::ErrorKind::Other, "unknown blog type"));
     }
@@ -90,6 +140,48 @@ fn clone_or_pull(blog: &str, path: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+fn rfc3339(date: &str) -> Result<String, io::Error> {
+    let parsed = match DateTime::parse_from_rfc2822(date) {
+        // Not using to_rfc3339() because we don't want the time here
+        Ok(parsed) => format!("{}", parsed.format("%Y-%m-%d")),
+        Err(e) => {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("failed to parse {}: {}", date, e),
+            ))
+        }
+    };
+    return Ok(parsed);
+}
+
+fn post(
+    output: &Path,
+    title: &str,
+    summary: &str,
+    _tags: &str,
+    author: &str,
+    date: &str,
+    orig: &str,
+) -> Result<String, io::Error> {
+    let path = output.join(format!("{}-{}.md", date, title));
+    let mut file = File::create(&path)?;
+    write!(
+        file,
+        "
+    ---
+title: {}
+subtitle: Studying the files and documenting findings
+date: {}
+author: {}
+type: post
+original_link: {}
+---
+{}",
+        title, date, author, orig, summary
+    )?;
+    return Ok(path.file_name().unwrap().to_str().unwrap().to_string());
+}
+
 #[cfg(test)]
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
@@ -108,6 +200,19 @@ mod tests {
             .join(blog.replace("/", "-"));
         assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
         // Repeat, this should be fine on an existing folder
+        assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_rss() -> Result<(), io::Error> {
+        let project_path = tempdir()?;
+        let output = project_path.path().join("content/post");
+        let blog = "./example.rss.xml".to_string();
+        let path = project_path
+            .path()
+            .join("content/post/.blogs")
+            .join(blog.replace("/", "-"));
         assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
         Ok(())
     }

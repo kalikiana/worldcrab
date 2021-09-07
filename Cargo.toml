@@ -15,7 +15,9 @@ documentation = "https://docs.rs/worldcrab"
 
 [dependencies]
 yaml-rust = "0.4"
+chrono = "0.4"
 git2 = {version="0.13", default-features=false, features=["https"]}
 reqwest = "0.9.18"
+syndication = "0.5"
 # Tests
 tempfile = "3.2.0"
