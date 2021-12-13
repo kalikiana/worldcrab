@@ -19,5 +19,6 @@ chrono = "0.4"
 git2 = {version="0.13", default-features=false, features=["https"]}
 reqwest = "0.9.18"
 syndication = "0.5"
+gray_matter = "0.2"
 # Tests
 tempfile = "3.2.0"

@@ -4,6 +4,8 @@ extern crate syndication;
 extern crate yaml_rust;
 use chrono::prelude::*;
 use git2::{Error, Repository, ResetType};
+use gray_matter::engine::YAML;
+use gray_matter::{Matter, ParsedEntity};
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -41,6 +43,15 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
+fn extract_matter(path: &Path) -> Result<ParsedEntity, io::Error> {
+    let mut matter = Matter::<YAML>::new();
+    matter.excerpt_delimiter = Some("<!--more-->".to_string());
+    let mut file = File::open(path)?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(matter.parse(&text))
+}
+
 fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::Error> {
     let cache = output.join(".blogs");
     fs::create_dir_all(&cache)?;
@@ -54,10 +65,25 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
             ));
         }
         let posts = path.join("content/post");
-        for post in posts.read_dir().expect("failed to read posts").flatten() {
-            if !output.join(post.file_name()).exists() {
-                fs::hard_link(post.path(), output.join(post.file_name()))?
-            };
+        for leaf in posts
+            .read_dir()
+            .expect(format!("failed to read posts: {}", blog).as_str())
+            .flatten()
+        {
+            if leaf.path().is_dir() {
+                continue;
+            }
+            let matter = extract_matter(leaf.path().as_path()).expect("failed to read leaf");
+            let data = matter.data.expect("invalid front matter");
+            post(
+                &output,
+                &data["title"].as_string().expect("no title"),
+                matter.content.as_str(),
+                "",
+                blog,
+                &data["date"].as_string().expect("no date"),
+                blog,
+            )?;
         }
     } else if blog.ends_with(".xml") {
         let mut body = String::new();
@@ -163,23 +189,25 @@ fn post(
     date: &str,
     orig: &str,
 ) -> Result<String, io::Error> {
-    let path = output.join(format!("{}-{}.md", date, title));
-    let mut file = File::create(&path)?;
+    let path = output.join(format!("{}-{}.md", date, title).replace("/", "-"));
+    let mut file = File::create(&path).expect(format!("invalid path: {:?}", path).as_str());
     write!(
         file,
         "
     ---
-title: {}
-subtitle: Studying the files and documenting findings
+title: '{}'
 date: {}
 author: {}
-type: post
 original_link: {}
 ---
 {}",
-        title, date, author, orig, summary
+        title.replace("'", "''"),
+        date,
+        author,
+        orig,
+        summary
     )?;
-    return Ok(path.file_name().unwrap().to_str().unwrap().to_string());
+    Ok(path.file_name().unwrap().to_str().unwrap().to_string())
 }
 
 #[cfg(test)]
@@ -187,6 +215,48 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn test_post() -> Result<(), io::Error> {
+        let output = tempdir()?;
+        post(
+            output.path(),
+            "Lorem ipsum",
+            "Dolor sit amet",
+            "[\"lorem\", \"ipsum\"]",
+            "Cicero",
+            "2021-11-29T14:48:11+02:00",
+            "http://example.com/2021-11-29-lorem-ipsum",
+        )?;
+        post(
+            output.path(),
+            "Sed ut perspiciatis",
+            "unde omnis iste natus error",
+            "[\"perspiciatis\"]",
+            "Cicero",
+            "Sat, 27 Nov 2021 15:32:10 +0100",
+            "http://example.com/2021-11-29-sed-ut-perspiciatis",
+        )?;
+        post(
+            output.path(),
+            "Robert'); DROP TABLE Students; --",
+            "Exploits of a mom",
+            "[\"bobby tables\"]",
+            "Little Bobby Tables",
+            "Mon, 11 Jun 1999",
+            "https://xkcd.com/327/",
+        )?;
+        post(
+            output.path(),
+            "Why ./ is better than \\",
+            "The path is the goal",
+            "",
+            "",
+            "2021-11-29",
+            "http://example.com/path/to/happiness",
+        )?;
+        Ok(())
+    }
 
     #[test]
     fn test_add() -> Result<(), io::Error> {
