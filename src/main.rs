@@ -105,27 +105,50 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
         match body.parse::<Feed>().unwrap() {
             Feed::Atom(atom) => {
                 for item in atom.entries().iter() {
+                    let summary = match item.summary() {
+                        Some(summary) => summary,
+                        None => match item.content() {
+                            Some(content) => content
+                                .value()
+                                .expect(format!("no content: {}", item.id()).as_str()),
+                            None => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    "no summary or content",
+                                ))
+                            }
+                        },
+                    };
+                    let author = match item.authors().to_vec().pop() {
+                        Some(author) => author.name().to_string(),
+                        None => blog.to_string(),
+                    };
                     post(
                         output,
                         item.title(),
-                        item.summary().unwrap(),
+                        summary,
                         "",
-                        "",
-                        rfc3339(item.published().unwrap())?.as_str(),
-                        item.id(),
+                        author.as_str(),
+                        rfc3339(item.published().unwrap_or(item.updated()))?.as_str(),
+                        item.links().to_vec().pop().unwrap().href(),
                     )?;
                 }
             }
             Feed::RSS(rss) => {
                 for item in rss.items().iter() {
+                    let link = item.link().expect(format!("no link: {}", blog).as_str());
                     post(
                         output,
                         item.title().unwrap(),
                         item.description().unwrap(),
                         "",
-                        "",
-                        rfc3339(item.pub_date().unwrap())?.as_str(),
-                        item.link().unwrap(),
+                        item.author().unwrap_or(blog),
+                        rfc3339(
+                            item.pub_date()
+                                .expect(format!("no date: {}", link).as_str()),
+                        )?
+                        .as_str(),
+                        link,
                     )?;
                 }
             }
@@ -170,12 +193,16 @@ fn rfc3339(date: &str) -> Result<String, io::Error> {
     let parsed = match DateTime::parse_from_rfc2822(date) {
         // Not using to_rfc3339() because we don't want the time here
         Ok(parsed) => format!("{}", parsed.format("%Y-%m-%d")),
-        Err(e) => {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!("failed to parse {}: {}", date, e),
-            ))
-        }
+        Err(_e) => match DateTime::parse_from_rfc3339(date) {
+            // Not using to_rfc3339() because we don't want the time here
+            Ok(parsed) => format!("{}", parsed.format("%Y-%m-%d")),
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("failed to parse as RFC 2822 or RFC 3339 {}: {}", date, e),
+                ))
+            }
+        },
     };
     return Ok(parsed);
 }
@@ -193,8 +220,7 @@ fn post(
     let mut file = File::create(&path).expect(format!("invalid path: {:?}", path).as_str());
     write!(
         file,
-        "
-    ---
+        "---
 title: '{}'
 date: {}
 author: {}
@@ -277,13 +303,28 @@ mod tests {
     #[test]
     fn test_add_rss() -> Result<(), io::Error> {
         let project_path = tempdir()?;
-        let output = project_path.path().join("content/post");
+        let output = project_path.path();
         let blog = "./example.rss.xml".to_string();
-        let path = project_path
-            .path()
-            .join("content/post/.blogs")
-            .join(blog.replace("/", "-"));
-        assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
+        add(&output, &blog)?;
+        let matter = extract_matter(output.join("2021-08-10-Cogito ergo sum.md").as_path())?;
+        assert_eq!(
+            matter.data.expect("no title")["title"].as_string(),
+            Ok("Cogito ergo sum".to_string())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_atom() -> Result<(), io::Error> {
+        let project_path = tempdir()?;
+        let output = project_path.path();
+        let blog = "./example.atom.xml".to_string();
+        add(&output, &blog)?;
+        let matter = extract_matter(output.join("2021-09-01-Cogito ergo sum.md").as_path())?;
+        assert_eq!(
+            matter.data.expect("no title")["title"].as_string(),
+            Ok("Cogito ergo sum".to_string())
+        );
         Ok(())
     }
 
