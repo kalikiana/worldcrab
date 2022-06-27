@@ -17,22 +17,27 @@ use syndication::Feed;
 use yaml_rust::YamlLoader;
 
 fn main() -> Result<(), io::Error> {
-    let mut args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().collect();
+    world(args)
+}
+
+fn world(mut args: Vec<String>) -> Result<(), io::Error> {
     // First command-line argument is the executable
     args.remove(0);
     // Second command-line argument is the project root folder
-    let project_path = match args.pop() {
+    let root = match args.pop() {
         Some(val) => val,
         None => "./disc".to_string(),
     };
+    let project_path = Path::new(&root);
 
-    let mut file = File::open("disc.yaml")?;
+    let mut file = File::open(&project_path.join("disc.yaml"))?;
     let mut yaml = String::new();
     file.read_to_string(&mut yaml)?;
     let config = YamlLoader::load_from_str(&yaml).unwrap();
     let doc = &config[0];
 
-    let output = Path::new(&project_path).join("content/post");
+    let output = project_path.join("content/post");
     fs::create_dir_all(&output)?;
 
     for blog in doc["blogs"].as_vec().unwrap().iter() {
@@ -287,7 +292,7 @@ mod tests {
     #[test]
     fn test_add() -> Result<(), io::Error> {
         let project_path = tempdir()?;
-        let output = Path::new(&project_path.path()).join("content/post");
+        let output = project_path.path().join("content/post");
 
         let blog = "https://gitlab.com/kalikiana/kalikiana.gitlab.io.git";
         let path = project_path
@@ -334,5 +339,30 @@ mod tests {
         let project_path = tempdir().unwrap();
         let output = project_path.path().join("content/post");
         add(&output, "http://example.com/file.txt").unwrap();
+    }
+
+    #[test]
+    fn test_args() {
+        let project_path = tempdir().unwrap();
+        fs::create_dir(&project_path.path().join("foo")).unwrap();
+        let mut file = File::create(&project_path.path().join("foo/disc.yaml")).unwrap();
+        write!(file, "blogs: [blog1]").unwrap();
+        world(vec![
+            "self".to_string(),
+            project_path
+                .path()
+                .join("foo")
+                .to_str()
+                .unwrap()
+                .to_string(),
+        ])
+        .unwrap();
+
+        fs::create_dir(&project_path.path().join("disc")).unwrap();
+        file = File::create(&project_path.path().join("disc/disc.yaml")).unwrap();
+        write!(file, "blogs: [blog1]").unwrap();
+        env::set_current_dir(&project_path.path()).unwrap();
+        world(vec!["self".to_string()]).unwrap();
+        world(vec!["self".to_string(), "disc".to_string()]).unwrap();
     }
 }
