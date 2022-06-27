@@ -1,9 +1,10 @@
-# World Crab
+# 🌍️🦀️ World Crab
 
 The world is changing. A mouse got lose and fell off the discworld. Consequently the elephants got scared and hopped off Great A'Tuin's back. As luck would have it a gigantic crab with four gophers on its back took its place.
 
-![GitHub Actions](https://img.shields.io/github/workflow/status/kalikiana/worldcrab/test)
+![GitHub Actions](https://github.com/kalikiana/worldcrab/actions/workflows/test.yml/badge.svg)
 ![Crates.io](https://img.shields.io/crates/d/worldcrab)
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/kalikiana/worldcrab)
 
 ## What's this project about?
 
@@ -11,7 +12,7 @@ A static meta blog generator aka a planet.
 
 Imagine you have a bunch of static blogs made with [Hugo](https://gohugo.io/) and you're looking for a way to aggregate those blogs easily without worrying too much about the details and without duplicating metadata. If this sounds too good to be true, the world crab is for you!
 
-## How do I use this?
+## 🔧️ How do I use this?
 
 ### Setup a static website
 
@@ -37,15 +38,27 @@ blogs:
 - http://dominique.leuenberger.net/blog/feed/
 ```
 
-**Note:** You will need `libopenssl-devel` on openSUSE, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora respectively.
+### Installation
 
-This project is built using cargo, which means you can run it directly from git or install it depending on your preference. The world crab will expect to find a file `disc.yaml` at the root of the folder containing your static site.
+This project is built using cargo, which means you can install it directly from git:
 
 ```bash
+cargo install --git https://github.com/kalikiana/worldcrab
+worldcrab disc
+```
+
+or build it from a local clone, which also allows you to work on it and contribute patches:
+
+```
+git clone https://github.com/kalikiana/worldcrab
 cargo run disc
 ```
 
-## Contributing
+The world crab will expect to find a file `disc.yaml` at the root of the folder containing your static site and the first argument is simply your root folder.
+
+**Note:** You will need `libopenssl-devel` on openSUSE, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora respectively.
+
+## 👷️ Contributing
 
 ### How do you validate your code?
 
