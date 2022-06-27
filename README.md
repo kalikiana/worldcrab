@@ -58,6 +58,12 @@ The world crab will expect to find a file `disc.yaml` at the root of the folder 
 
 **Note:** You will need `libopenssl-devel` on openSUSE, `libssl-dev` on Ubuntu or `openssl-devel` on Fedora respectively.
 
+### Render modes
+
+By default the world crab produces markdown with front matter written in YAML, which can be processed with **Hugo** or another static site generator. The `html` renderer can also produce a static website from that:
+
+    worldcrab --html disc
+
 ## 👷️ Contributing
 
 ### How do you validate your code?
