@@ -60,13 +60,13 @@ fn extract_matter(path: &Path) -> Result<ParsedEntity, io::Error> {
 fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::Error> {
     let cache = output.join(".blogs");
     fs::create_dir_all(&cache)?;
-    let path = Path::new(&cache).join(blog.replace("/", "-"));
+    let path = Path::new(&cache).join(blog.replace('/', "-"));
 
     if blog.ends_with(".git") {
-        if let Err(e) = clone_or_pull(&blog, &path) {
+        if let Err(e) = clone_or_pull(blog, &path) {
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("failed to clone or pull: {}", e),
+                format!("failed to clone or pull {}: {}", blog, e),
             ));
         }
         let posts = path.join("content/post");
@@ -209,7 +209,7 @@ fn rfc3339(date: &str) -> Result<String, io::Error> {
             }
         },
     };
-    return Ok(parsed);
+    Ok(parsed)
 }
 
 fn post(
@@ -221,7 +221,7 @@ fn post(
     date: &str,
     orig: &str,
 ) -> Result<String, io::Error> {
-    let path = output.join(format!("{}-{}.md", date, title).replace("/", "-"));
+    let path = output.join(format!("{}-{}.md", date, title).replace('/', "-"));
     let mut file = File::create(&path).expect(format!("invalid path: {:?}", path).as_str());
     write!(
         file,
@@ -232,7 +232,7 @@ author: {}
 original_link: {}
 ---
 {}",
-        title.replace("'", "''"),
+        title.replace('\'', "''"),
         date,
         author,
         orig,
@@ -245,6 +245,7 @@ original_link: {}
 mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
+    use git2::Signature;
     use tempfile::tempdir;
 
     #[test]
@@ -291,17 +292,34 @@ mod tests {
 
     #[test]
     fn test_add() -> Result<(), io::Error> {
-        let project_path = tempdir()?;
-        let output = project_path.path().join("content/post");
+        let parent_folder = tempdir()?;
+        let project_path = parent_folder.path().join("blog.git");
+        let output = project_path.join("content/post");
+        fs::create_dir_all(&output).unwrap();
 
-        let blog = "https://gitlab.com/kalikiana/kalikiana.gitlab.io.git";
+        let repo = Repository::init(&project_path).unwrap();
+        let example = &output.join("2020-02-02-example.md");
+        let mut file = File::create(&example)?;
+        write!(
+            file,
+            "---\ntitle: Example\ndate: 2020-02-02\n---\nLorem ipsum"
+        )?;
+        let mut index = repo.index().unwrap();
+        index
+            .add_path(Path::new("content/post/2020-02-02-example.md"))
+            .unwrap();
+        let sig = Signature::now("Example", "email@example.com").unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "example", &tree, &[])
+            .unwrap();
+
+        let blog = project_path.to_str().unwrap().to_string();
         let path = project_path
-            .path()
             .join("content/post/.blogs")
-            .join(blog.replace("/", "-"));
-        assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
+            .join(blog.replace('/', "-"));
+        assert_eq!(add(&output, &blog).unwrap().file_name(), path.file_name());
         // Repeat, this should be fine on an existing folder
-        assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
+        assert_eq!(add(&output, &blog).unwrap().file_name(), path.file_name());
         Ok(())
     }
 
