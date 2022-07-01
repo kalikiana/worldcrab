@@ -369,6 +369,17 @@ mod tests {
         let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
         repo.commit(Some("HEAD"), &sig, &sig, "example", &tree, &[])
             .unwrap();
+        // Make some changes to the post
+        write!(
+            file,
+            "---\ntitle: Example\ndate: 2030-03-03\n---\nLorem ipsum"
+        )?;
+        index
+            .add_path(Path::new("content/post/2020-02-02-example.md"))
+            .unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "update", &tree, &[])
+            .unwrap();
 
         let blog = repo_path.to_str().unwrap().to_string();
         let path = output.join(".blogs").join(blog.replace('/', "-"));
@@ -386,6 +397,28 @@ mod tests {
         );
         // Repeat, this should be fine on an existing folder
         assert_eq!(add(&output, &blog).unwrap().file_name(), path.file_name());
+
+        // Revert one commit, and see if it gets pulled again
+        let repo = match Repository::open(&path) {
+            Ok(repo) => repo,
+            Err(e) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!("failed to open: {}", e),
+                ))
+            }
+        };
+        let latest = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.reset(
+            &repo.revparse_single("HEAD~1").unwrap(),
+            ResetType::Hard,
+            None,
+        )
+        .unwrap();
+        repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(add(&output, &blog)?.file_name(), path.file_name());
+        let current = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(latest.id(), current.id());
         Ok(())
     }
 
