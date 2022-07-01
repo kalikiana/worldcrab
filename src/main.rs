@@ -45,7 +45,53 @@ fn world(mut args: Vec<String>) -> Result<(), io::Error> {
             eprintln!("failed to add {}: {}", &blog.as_str().unwrap(), e);
         };
     }
+    // Take render mode from command-line
+    if args.contains(&"--html".to_string()) {
+        html(Path::new(&project_path))?;
+    }
     Ok(())
+}
+
+fn html(project_path: &std::path::Path) -> Result<std::path::PathBuf, io::Error> {
+    let output = project_path.join("public");
+    fs::create_dir_all(&output)?;
+    let mut index = File::create(&output.join("index.html")).expect("failed to prepare index.html");
+    write!(index, "<body><ul>")?;
+
+    for leaf in project_path
+        .join("content/post")
+        .read_dir()
+        .expect("failed to read posts")
+        .flatten()
+    {
+        if leaf.path().is_file() {
+            let path = output.join(leaf.file_name()).with_extension("html");
+            let mut file = File::create(&path)
+                .expect(format!("failed to prepare output file: {:?}", path).as_str());
+            let matter = extract_matter(leaf.path().as_path())
+                .expect(format!("failed to read leaf: {:?}", leaf).as_str());
+            let data = matter
+                .data
+                .expect(format!("failed to extract front matter: {:?}", leaf.path()).as_str());
+            let title = data["title"].as_string().expect("no title");
+            write!(
+                file,
+                "
+    <title>{}</title>
+    <body>{}</body>
+    ",
+                title, matter.content
+            )?;
+            write!(
+                index,
+                "<li><a href=\"./{:?}\">{}</a></li>",
+                path.file_name().unwrap(),
+                title
+            )?;
+        }
+    }
+    write!(index, "</ul></body>")?;
+    Ok(output)
 }
 
 fn extract_matter(path: &Path) -> Result<ParsedEntity, io::Error> {
@@ -439,5 +485,19 @@ mod tests {
                 .join("disc/content/post/2021-08-10-Cogito ergo sum.md")
         )
         .exists());
+
+        world(vec![
+            "self".to_string(),
+            "--html".to_string(),
+            "disc".to_string(),
+        ])
+        .unwrap();
+        assert!(Path::new(
+            &project_path
+                .path()
+                .join("disc/public/2021-08-10-Cogito ergo sum.html")
+        )
+        .exists());
+        assert!(Path::new(&project_path.path().join("disc/public/index.html")).exists());
     }
 }
