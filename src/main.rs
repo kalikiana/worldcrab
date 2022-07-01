@@ -79,13 +79,20 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
                 continue;
             }
             let matter = extract_matter(leaf.path().as_path()).expect("failed to read leaf");
-            let data = matter.data.expect("invalid front matter");
+            let data = matter.data.as_ref().expect("invalid front matter");
+            let tags = matter.data.as_ref().expect("no tags")["tags"]
+                .as_vec()
+                .expect("tags")
+                .iter()
+                .fold(",".to_string(), |cur, next| {
+                    format!("{},{}", cur, next.as_string().unwrap())
+                });
             post(
-                &output,
+                output,
                 &data["title"].as_string().expect("no title"),
                 matter.content.as_str(),
-                "",
-                blog,
+                &tags.replace(",,", ""),
+                &data["author"].as_string().unwrap_or(blog.to_string()),
                 &data["date"].as_string().expect("no date"),
                 blog,
             )?;
@@ -132,7 +139,7 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
                         output,
                         item.title(),
                         summary,
-                        "",
+                        item.categories().to_vec().pop().expect("categories").term(),
                         author.as_str(),
                         rfc3339(item.published().unwrap_or(item.updated()))?.as_str(),
                         item.links().to_vec().pop().unwrap().href(),
@@ -146,7 +153,7 @@ fn add(output: &std::path::Path, blog: &str) -> Result<std::path::PathBuf, io::E
                         output,
                         item.title().unwrap(),
                         item.description().unwrap(),
-                        "",
+                        item.categories().to_vec().pop().expect("categories").name(),
                         item.author().unwrap_or(blog),
                         rfc3339(
                             item.pub_date()
@@ -216,7 +223,7 @@ fn post(
     output: &Path,
     title: &str,
     summary: &str,
-    _tags: &str,
+    tags: &str,
     author: &str,
     date: &str,
     orig: &str,
@@ -229,12 +236,14 @@ fn post(
 title: '{}'
 date: {}
 author: {}
+tags: [{}]
 original_link: {}
 ---
 {}",
         title.replace('\'', "''"),
         date,
         author,
+        tags,
         orig,
         summary
     )?;
@@ -255,7 +264,7 @@ mod tests {
             output.path(),
             "Lorem ipsum",
             "Dolor sit amet",
-            "[\"lorem\", \"ipsum\"]",
+            "\"lorem\", \"ipsum\"",
             "Cicero",
             "2021-11-29T14:48:11+02:00",
             "http://example.com/2021-11-29-lorem-ipsum",
@@ -264,7 +273,7 @@ mod tests {
             output.path(),
             "Sed ut perspiciatis",
             "unde omnis iste natus error",
-            "[\"perspiciatis\"]",
+            "\"perspiciatis\"",
             "Cicero",
             "Sat, 27 Nov 2021 15:32:10 +0100",
             "http://example.com/2021-11-29-sed-ut-perspiciatis",
@@ -273,7 +282,7 @@ mod tests {
             output.path(),
             "Robert'); DROP TABLE Students; --",
             "Exploits of a mom",
-            "[\"bobby tables\"]",
+            "\"bobby tables\"",
             "Little Bobby Tables",
             "Mon, 11 Jun 1999",
             "https://xkcd.com/327/",
@@ -293,16 +302,18 @@ mod tests {
     #[test]
     fn test_add() -> Result<(), io::Error> {
         let parent_folder = tempdir()?;
-        let project_path = parent_folder.path().join("blog.git");
+        let repo_path = parent_folder.path().join("blog.git");
+        let posts = repo_path.join("content/post");
+        fs::create_dir_all(&posts).unwrap();
+        let project_path = parent_folder.path().join("project");
         let output = project_path.join("content/post");
-        fs::create_dir_all(&output).unwrap();
 
-        let repo = Repository::init(&project_path).unwrap();
-        let example = &output.join("2020-02-02-example.md");
+        let repo = Repository::init(&repo_path).unwrap();
+        let example = &posts.join("2020-02-02-example.md");
         let mut file = File::create(&example)?;
         write!(
             file,
-            "---\ntitle: Example\ndate: 2020-02-02\n---\nLorem ipsum"
+            "---\ntitle: Example\ndate: 2020-02-02\ntags: [a, b]\nauthor: Cicero\n---\nLorem ipsum"
         )?;
         let mut index = repo.index().unwrap();
         index
@@ -313,11 +324,20 @@ mod tests {
         repo.commit(Some("HEAD"), &sig, &sig, "example", &tree, &[])
             .unwrap();
 
-        let blog = project_path.to_str().unwrap().to_string();
-        let path = project_path
-            .join("content/post/.blogs")
-            .join(blog.replace('/', "-"));
+        let blog = repo_path.to_str().unwrap().to_string();
+        let path = output.join(".blogs").join(blog.replace('/', "-"));
         assert_eq!(add(&output, &blog).unwrap().file_name(), path.file_name());
+        // Note that the generated filename is based on the title
+        let matter = extract_matter(&output.join("2020-02-02-Example.md")).unwrap();
+        let mut tags = matter.data.as_ref().expect("no tags")["tags"]
+            .as_vec()
+            .expect("tags");
+        assert_eq!(tags.pop().unwrap().as_string(), Ok("b".to_string()));
+        assert_eq!(tags.pop().unwrap().as_string(), Ok("a".to_string()));
+        assert_eq!(
+            matter.data.as_ref().unwrap()["author"].as_string(),
+            Ok("Cicero".to_string())
+        );
         // Repeat, this should be fine on an existing folder
         assert_eq!(add(&output, &blog).unwrap().file_name(), path.file_name());
         Ok(())
@@ -331,8 +351,20 @@ mod tests {
         add(&output, &blog)?;
         let matter = extract_matter(output.join("2021-08-10-Cogito ergo sum.md").as_path())?;
         assert_eq!(
-            matter.data.expect("no title")["title"].as_string(),
+            matter.data.as_ref().expect("no title")["title"].as_string(),
             Ok("Cogito ergo sum".to_string())
+        );
+        assert_eq!(
+            matter.data.as_ref().unwrap()["original_link"].as_string(),
+            Ok("http://example.com/2021/09/01/lorem-ipsum/".to_string())
+        );
+        let mut tags = matter.data.as_ref().unwrap()["tags"]
+            .as_vec()
+            .expect("tags");
+        assert_eq!(tags.pop().unwrap().as_string(), Ok("b".to_string()));
+        assert_eq!(
+            matter.data.as_ref().unwrap()["author"].as_string(),
+            Ok("Cicero".to_string())
         );
         Ok(())
     }
@@ -345,8 +377,20 @@ mod tests {
         add(&output, &blog)?;
         let matter = extract_matter(output.join("2021-09-01-Cogito ergo sum.md").as_path())?;
         assert_eq!(
-            matter.data.expect("no title")["title"].as_string(),
+            matter.data.as_ref().unwrap()["title"].as_string(),
             Ok("Cogito ergo sum".to_string())
+        );
+        assert_eq!(
+            matter.data.as_ref().unwrap()["original_link"].as_string(),
+            Ok("http://example.com/2021/09/01/lorem-ipsum/".to_string())
+        );
+        let mut tags = matter.data.as_ref().expect("no tags")["tags"]
+            .as_vec()
+            .expect("tags");
+        assert_eq!(tags.pop().unwrap().as_string(), Ok("b".to_string()));
+        assert_eq!(
+            matter.data.as_ref().unwrap()["author"].as_string(),
+            Ok("Cicero".to_string())
         );
         Ok(())
     }
@@ -364,7 +408,8 @@ mod tests {
         let project_path = tempdir().unwrap();
         fs::create_dir(&project_path.path().join("foo")).unwrap();
         let mut file = File::create(&project_path.path().join("foo/disc.yaml")).unwrap();
-        write!(file, "blogs: [blog1]").unwrap();
+        let blog = env::current_dir().unwrap().join("example.rss.xml");
+        write!(file, "blogs: [{:?}]", blog).unwrap();
         world(vec![
             "self".to_string(),
             project_path
@@ -375,12 +420,24 @@ mod tests {
                 .to_string(),
         ])
         .unwrap();
+        assert!(Path::new(
+            &project_path
+                .path()
+                .join("foo/content/post/2021-08-10-Cogito ergo sum.md")
+        )
+        .exists());
 
         fs::create_dir(&project_path.path().join("disc")).unwrap();
         file = File::create(&project_path.path().join("disc/disc.yaml")).unwrap();
-        write!(file, "blogs: [blog1]").unwrap();
+        write!(file, "blogs: [{:?}]", blog).unwrap();
         env::set_current_dir(&project_path.path()).unwrap();
         world(vec!["self".to_string()]).unwrap();
         world(vec!["self".to_string(), "disc".to_string()]).unwrap();
+        assert!(Path::new(
+            &project_path
+                .path()
+                .join("disc/content/post/2021-08-10-Cogito ergo sum.md")
+        )
+        .exists());
     }
 }
